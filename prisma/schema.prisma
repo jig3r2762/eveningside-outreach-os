@@ -1,0 +1,859 @@
+// Evening Side Labs Outreach OS — Complete Sales Operating System v2 Database Schema
+// Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USERS & AUTH ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("SALES") // ADMIN, SALES_MANAGER, SALES, RESEARCH, VIEWER
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  assignedCompanies   Company[]            @relation("CompanyOwner")
+  assignedContacts    Contact[]            @relation("ContactOwner")
+  assignedLeads       Lead[]               @relation("LeadOwner")
+  createdActivities   Activity[]           @relation("ActivityCreator")
+  assignedTasks       Task[]               @relation("TaskAssignee")
+  createdTasks        Task[]               @relation("TaskCreator")
+  ownedOpportunities  Opportunity[]        @relation("OpportunityOwner")
+  clients             Client[]             @relation("ClientSalesperson")
+  research            Research[]           @relation("Researcher")
+  stageChanges        StageHistory[]       @relation("StageChanger")
+  createdNotes        Note[]               @relation("NoteCreator")
+  notifications       Notification[]
+  organizedMeetings   Meeting[]            @relation("MeetingOrganizer")
+  createdProposals    Proposal[]           @relation("ProposalCreator")
+  auditLogs           AuditLog[]           @relation("AuditActor")
+  suppressionEntries  SuppressionList[]    @relation("SuppressionAddedBy")
+}
+
+// ─── COMPANIES (ACCOUNTS) ─────────────────────────────────────
+
+model Company {
+  id                  String   @id @default(cuid())
+  name                String
+  website             String?
+  domain              String?  // extracted from website for dedup
+  country             String?
+  stateRegion         String?
+  city                String?
+  industry            String?
+  subIndustry         String?
+  companySize         String?  // Small, Medium, Large, Enterprise
+  estimatedEmployees  String?
+  revenueRange        String?
+  manufacturingType   String?
+  productsServices    String?
+  numberOfLocations   Int?
+  primaryMarket       String?
+  targetMarket        String?
+  source              String?
+  sourceUrl           String?
+  linkedinUrl         String?
+  status              String   @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
+  qualificationStatus String   @default("NEW") // NEW, RESEARCHING, QUALIFIED, DISQUALIFIED
+  leadScore           Int      @default(0)
+  fitScore            Int      @default(0)
+  painSignalScore     Int      @default(0)
+  buyingSignal        String?
+  researchNotes       String?
+  segment             String?  // B2B Segment
+  briefOverview       String?  // Company brief overview
+  medium              String?  // Outreach medium (Email, LinkedIn, Call, WhatsApp)
+  assignedToId        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  assignedTo    User?          @relation("CompanyOwner", fields: [assignedToId], references: [id])
+  contacts      Contact[]
+  leads         Lead[]
+  activities    Activity[]
+  research      Research[]
+  opportunities Opportunity[]
+  clients       Client[]
+  notes         Note[]
+  tasks         Task[]
+  meetings      Meeting[]
+  proposals     Proposal[]
+  companyTags   CompanyTag[]
+
+  @@index([domain])
+  @@index([name])
+  @@index([country])
+  @@index([industry])
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  color       String       @default("#6B7280") // tailwind gray-500
+  createdAt   DateTime     @default(now())
+  companyTags CompanyTag[]
+}
+
+model CompanyTag {
+  id        String   @id @default(cuid())
+  companyId String
+  tagId     String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, tagId])
+}
+
+// ─── CONTACTS ─────────────────────────────────────────────────
+
+model Contact {
+  id                 String    @id @default(cuid())
+  companyId          String
+  fullName           String
+  firstName          String?
+  lastName           String?
+  jobTitle           String?
+  department         String?   // Operations, Plant, Engineering, Management, IT, Supply Chain
+  decisionMakerLevel String?   @default("UNKNOWN") // OWNER_FOUNDER, C_LEVEL, VP_DIRECTOR, PLANT_MANAGER, OPERATIONS_HEAD, EVALUATOR, UNKNOWN
+  contactStatus      String?   @default("ACTIVE") // ACTIVE, BOUNCED, DO_NOT_CONTACT, LEFT_COMPANY
+  status             String?   @default("ACTIVE") // ACTIVE, BOUNCED, DO_NOT_CONTACT, LEFT_COMPANY
+  verificationStatus String?   @default("UNVERIFIED") // VERIFIED, UNVERIFIED, RISKY, INVALID
+  email              String?
+  emailSource        String?
+  phone              String?
+  phoneSource        String?
+  linkedinUrl        String?
+  firstContactDate   DateTime?
+  lastContacted      DateTime?
+  outreachStatus     String?   @default("NOT_CONTACTED")
+  notes              String?
+  assignedToId       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo    User?          @relation("ContactOwner", fields: [assignedToId], references: [id])
+  primaryLeads  Lead[]         @relation("PrimaryContact")
+  activities    Activity[]
+  followUps     FollowUp[]
+  tasks         Task[]
+  notesRel      Note[]
+  leadContacts  LeadContact[]
+  opportunities Opportunity[]
+  meetings      Meeting[]
+  proposals     Proposal[]
+
+  @@index([companyId])
+  @@index([email])
+  @@index([linkedinUrl])
+}
+
+// ─── LEADS (PROSPECTS) ────────────────────────────────────────
+
+model Lead {
+  id                  String    @id @default(cuid())
+  companyId           String
+  primaryContactId    String?
+  stage               String    @default("NEW") // NEW, RESEARCHING, QUALIFIED, READY_TO_CONTACT, CONTACTED, CONNECTED, CONVERSATION, DISCOVERY_CALL, QUALIFIED_OPPORTUNITY, PROPOSAL, NEGOTIATION, WON, LOST, NURTURE
+  leadScore           Int       @default(0)
+  companyFit          Int       @default(0)
+  operationalComplexity Int     @default(0)
+  pipelineValue       Float     @default(0)
+  source              String    @default("OTHER")
+  sourceUrl           String?
+  discoveredDate      DateTime  @default(now())
+  firstContactDate    DateTime?
+  lastContactDate     DateTime?
+  followUpDate        DateTime?
+  f1Date              DateTime?
+  f1Status            String?   @default("PENDING") // PENDING, SENT, REPLIED, NO_RESPONSE, NOT_NEEDED
+  f2Date              DateTime?
+  f2Status            String?   @default("PENDING")
+  f3Date              DateTime?
+  f3Status            String?   @default("PENDING")
+  segment             String?
+  briefOverview       String?
+  medium              String?
+  potentialPainPoints String?
+  assignedToId        String?
+  market              String?
+  outreachStatus      String    @default("NOT_CONTACTED")
+  lostReason          String?
+  lostReasonDetails   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  primaryContact Contact?            @relation("PrimaryContact", fields: [primaryContactId], references: [id], onDelete: SetNull)
+  assignedTo     User?               @relation("LeadOwner", fields: [assignedToId], references: [id])
+  activities     Activity[]
+  followUps      FollowUp[]
+  tasks          Task[]
+  notes          Note[]
+  stageHistory   StageHistory[]
+  opportunity    Opportunity?
+  qualification  QualificationScore?
+  research       Research[]
+  leadContacts   LeadContact[]
+  leadServices   LeadService[]
+  leadSequence   LeadSequence?
+  meetings       Meeting[]
+
+  @@index([companyId])
+  @@index([stage])
+  @@index([leadScore])
+  @@index([assignedToId])
+}
+
+model LeadContact {
+  id        String  @id @default(cuid())
+  leadId    String
+  contactId String
+  role      String? // e.g. "Primary", "Technical", "Decision Maker"
+  lead      Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, contactId])
+}
+
+model LeadService {
+  id        String  @id @default(cuid())
+  leadId    String
+  serviceId String
+  lead      Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, serviceId])
+}
+
+// ─── ACTIVITIES (OUTREACH) ────────────────────────────────────
+
+model Activity {
+  id                   String    @id @default(cuid())
+  leadId               String?
+  contactId            String?
+  companyId            String?
+  channel              String    // EMAIL, LINKEDIN, PHONE, WHATSAPP, REFERRAL, WEBSITE, IN_PERSON, OTHER
+  activityType         String    // CONNECTION_REQUEST, CONNECTION_ACCEPTED, FIRST_MESSAGE, FOLLOW_UP, EMAIL_SENT, EMAIL_REPLY, CALL_ATTEMPT, CALL_CONNECTED, WHATSAPP_MESSAGE, MEETING, PROPOSAL, OTHER
+  date                 DateTime  @default(now())
+  time                 String?   // HH:mm format
+  direction            String    @default("OUTBOUND") // OUTBOUND, INBOUND
+  message              String?
+  subject              String?
+  outcome              String?
+  nextFollowUpDate     DateTime?
+  createdById          String?
+  notes                String?
+  createdAt            DateTime  @default(now())
+
+  // Relations
+  lead                 Lead?                 @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact              Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company              Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  createdBy            User?                 @relation("ActivityCreator", fields: [createdById], references: [id])
+  followUps            FollowUp[]
+  conversationAnalysis ConversationAnalysis?
+
+  @@index([leadId])
+  @@index([contactId])
+  @@index([companyId])
+  @@index([date])
+  @@index([channel])
+}
+
+// ─── FOLLOW-UPS ───────────────────────────────────────────────
+
+model FollowUp {
+  id              String    @id @default(cuid())
+  leadId          String?
+  contactId       String?
+  activityId      String?
+  dueDate         DateTime
+  channel         String?
+  type            String?   // FOLLOW_UP, RESPONSE, CHECK_IN, PROPOSAL_FOLLOW_UP
+  status          String    @default("PENDING") // PENDING, COMPLETED, SKIPPED, OVERDUE
+  priority        String    @default("MEDIUM") // HIGH, MEDIUM, LOW
+  completedAt     DateTime?
+  outcome         String?
+  notes           String?
+  sequenceStepId  String?
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  activity     Activity?     @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  sequenceStep SequenceStep? @relation(fields: [sequenceStepId], references: [id])
+
+  @@index([dueDate])
+  @@index([status])
+  @@index([leadId])
+}
+
+// ─── TASKS ────────────────────────────────────────────────────
+
+model Task {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  leadId       String?
+  contactId    String?
+  companyId    String?
+  channel      String?
+  priority     String    @default("MEDIUM") // HIGH, MEDIUM, LOW
+  status       String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, SKIPPED, OVERDUE
+  dueDate      DateTime?
+  assignedToId String?
+  createdById  String?
+  completedAt  DateTime?
+  outcome      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  lead       Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact    Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company    Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  assignedTo User?    @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  createdBy  User?    @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([assignedToId])
+}
+
+// ─── OPPORTUNITIES (DEALS) ────────────────────────────────────
+
+model Opportunity {
+  id                String    @id @default(cuid())
+  name              String
+  companyId         String
+  contactId         String?
+  leadId            String?   @unique
+  problem           String?
+  proposedSolution  String?
+  estimatedValue    Float     @default(0)
+  probability       Int       @default(0) // 0-100
+  expectedCloseDate DateTime?
+  ownerId           String?
+  stage             String    @default("DISCOVERY_CALL") // DISCOVERY_CALL, TECHNICAL_QUALIFIED, SOLUTION_REVIEW, PROPOSAL_SENT, NEGOTIATION, VERBAL_COMMIT, WON, LOST
+  competitors       String?
+  decisionCriteria  String?
+  decisionProcess   String?
+  nextAction        String?
+  lostReason        String?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact             Contact?             @relation(fields: [contactId], references: [id])
+  lead                Lead?                @relation(fields: [leadId], references: [id])
+  owner               User?                @relation("OpportunityOwner", fields: [ownerId], references: [id])
+  client              Client?
+  proposals           Proposal[]
+  meetings            Meeting[]
+  opportunityServices OpportunityService[]
+
+  @@index([companyId])
+  @@index([stage])
+}
+
+model OpportunityService {
+  id            String      @id @default(cuid())
+  opportunityId String
+  serviceId     String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, serviceId])
+}
+
+// ─── MEETINGS ─────────────────────────────────────────────────
+
+model Meeting {
+  id               String    @id @default(cuid())
+  title            String
+  companyId        String
+  contactId        String?
+  opportunityId    String?
+  leadId           String?
+  organizerId      String?
+  scheduledAt      DateTime
+  durationMinutes  Int       @default(30)
+  meetingType      String    @default("DISCOVERY") // DISCOVERY, DEMO, TECHNICAL_DEEP_DIVE, PROPOSAL_REVIEW, NEGOTIATION, KICKOFF
+  status           String    @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED, NO_SHOW, RESCHEDULED
+  calendarEventId  String?
+  meetingUrl       String?
+  summaryNotes     String?
+  painDiscovered   String?
+  budgetDiscovered String?
+  timelineDiscovered String?
+  decisionMakerDiscovered String?
+  nextAction       String?
+  outcome          String?   // OPPORTUNITY_CREATED, PROPOSAL_REQUESTED, FOLLOW_UP_REQUIRED, NOT_A_FIT
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact     Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  lead        Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  organizer   User?        @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([companyId])
+}
+
+// ─── PROPOSALS ────────────────────────────────────────────────
+
+model Proposal {
+  id             String    @id @default(cuid())
+  title          String
+  opportunityId  String
+  companyId      String
+  contactId      String?
+  version        Int       @default(1)
+  value          Float     @default(0)
+  discount       Float     @default(0)
+  currency       String    @default("USD")
+  status         String    @default("DRAFT") // DRAFT, SENT, VIEWED, ACCEPTED, REJECTED, EXPIRED
+  scopeServices  String?   // JSON list of services/deliverables
+  paymentTerms   String?   // e.g. "50% upfront, 50% upon milestone completion"
+  validUntil     DateTime?
+  sentAt         DateTime?
+  viewedAt       DateTime?
+  acceptedAt     DateTime?
+  rejectedAt     DateTime?
+  rejectionReason String?
+  documentUrl    String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact     Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  createdBy   User?       @relation("ProposalCreator", fields: [createdById], references: [id])
+
+  @@index([opportunityId])
+  @@index([status])
+}
+
+// ─── CLIENTS & ONBOARDING ─────────────────────────────────────
+
+model Client {
+  id            String    @id @default(cuid())
+  companyId     String
+  opportunityId String?   @unique
+  dealValue     Float     @default(0)
+  serviceId     String?
+  source        String?
+  salespersonId String?
+  status        String    @default("ONBOARDING") // ONBOARDING, ACTIVE, RENEWAL_DUE, COMPLETED, CHURNED
+  notes         String?
+  convertedAt   DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  company     Company           @relation(fields: [companyId], references: [id])
+  opportunity Opportunity?      @relation(fields: [opportunityId], references: [id])
+  service     Service?          @relation(fields: [serviceId], references: [id])
+  salesperson User?             @relation("ClientSalesperson", fields: [salespersonId], references: [id])
+  onboarding  ClientOnboarding?
+
+  @@index([companyId])
+}
+
+model ClientOnboarding {
+  id               String    @id @default(cuid())
+  clientId         String    @unique
+  status           String    @default("IN_PROGRESS") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  kickoffDate      DateTime?
+  targetLaunchDate DateTime?
+  checklist        String?   // JSON checklist items
+  deliverables     String?   // Scope & architecture deliverables
+  clientFolderUrl  String?
+  notes            String?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─── RESEARCH ─────────────────────────────────────────────────
+
+model Research {
+  id                          String   @id @default(cuid())
+  companyId                   String
+  leadId                      String?
+  companyOverview             String?
+  products                    String?
+  manufacturingProcess        String?
+  locations                   String?
+  operationalComplexity       String?
+  erpSignals                  String?
+  automationSignals           String?
+  hiringSignals               String?
+  expansionSignals            String?
+  digitalTransformationSignals String?
+  buyingSignals               String?
+  workflowBottlenecks         String?
+  technologyStack             String?
+  relevantNews                String?
+  pitchAngle                  String?  // AI Recommended opening angle
+  recommendedService          String?
+  researchDate                DateTime @default(now())
+  researcherId                String?
+  confidence                  String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  // Relations
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  researcher User?           @relation("Researcher", fields: [researcherId], references: [id])
+  claims     ResearchClaim[]
+
+  @@index([companyId])
+}
+
+model ResearchClaim {
+  id         String   @id @default(cuid())
+  researchId String
+  claim      String
+  source     String?
+  sourceUrl  String?
+  date       DateTime @default(now())
+  confidence String   @default("MEDIUM") // HIGH, MEDIUM, LOW, UNKNOWN
+  category   String   @default("UNKNOWN") // VERIFIED_FACT, EVIDENCE_BASED_INFERENCE, HYPOTHESIS, UNKNOWN
+
+  // Relations
+  research Research @relation(fields: [researchId], references: [id], onDelete: Cascade)
+
+  @@index([researchId])
+}
+
+// ─── SEQUENCES ────────────────────────────────────────────────
+
+model Sequence {
+  id          String         @id @default(cuid())
+  name        String
+  channel     String         // LINKEDIN, EMAIL, MULTI_CHANNEL, COLD_EMAIL, WARM_LEAD
+  description String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  steps       SequenceStep[]
+  enrollments LeadSequence[]
+}
+
+model SequenceStep {
+  id          String     @id @default(cuid())
+  sequenceId  String
+  stepNumber  Int
+  dayOffset   Int        // days after sequence start
+  actionType  String     // CONNECTION_REQUEST, FIRST_MESSAGE, FOLLOW_UP, EMAIL, CALL, VALUE_ADD, OTHER
+  description String?
+  channel     String?
+  sequence    Sequence   @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  followUps   FollowUp[]
+
+  @@unique([sequenceId, stepNumber])
+  @@index([sequenceId])
+}
+
+model LeadSequence {
+  id              String    @id @default(cuid())
+  leadId          String    @unique
+  sequenceId      String
+  currentStep     Int       @default(0)
+  startedAt       DateTime  @default(now())
+  status          String    @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED, CANCELLED
+  lastStepAt      DateTime?
+  nextStepDueAt   DateTime?
+
+  // Relations
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sequence Sequence @relation(fields: [sequenceId], references: [id])
+
+  @@index([sequenceId])
+  @@index([status])
+}
+
+// ─── STAGE HISTORY & AUDIT LOG ────────────────────────────────
+
+model StageHistory {
+  id          String   @id @default(cuid())
+  leadId      String
+  fromStage   String?
+  toStage     String
+  changedById String?
+  changedAt   DateTime @default(now())
+  duration    Int?     // seconds in previous stage
+
+  // Relations
+  lead      Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("StageChanger", fields: [changedById], references: [id])
+
+  @@index([leadId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   // CREATE, UPDATE, DELETE, STAGE_CHANGE, SYNC, OUTREACH_SENT
+  entityType String   // Lead, Company, Contact, Opportunity, Proposal, Meeting, Setting
+  entityId   String
+  oldValues  String?  // JSON snapshot
+  newValues  String?  // JSON snapshot
+  source     String   @default("WEB_UI") // WEB_UI, GOOGLE_SHEET_SYNC, API, AI_AUTOMATION, CRON
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user User? @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ─── NOTES & NOTIFICATIONS ────────────────────────────────────
+
+model Note {
+  id          String   @id @default(cuid())
+  leadId      String?
+  contactId   String?
+  companyId   String?
+  content     String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("NoteCreator", fields: [createdById], references: [id])
+
+  @@index([leadId])
+  @@index([contactId])
+  @@index([companyId])
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  userId         String
+  type           String   // FOLLOW_UP_DUE, NEW_REPLY, MEETING_BOOKED, PROPOSAL_ACCEPTED, LEAD_GOING_COLD, HIGH_PRIORITY_LEAD, SYNC_ERROR
+  title          String
+  message        String
+  relatedLeadId  String?
+  relatedContactId String?
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ─── SERVICES ─────────────────────────────────────────────────
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  category    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  // Relations
+  leadServices        LeadService[]
+  opportunityServices OpportunityService[]
+  clients             Client[]
+}
+
+// ─── QUALIFICATION SCORES ─────────────────────────────────────
+
+model QualificationScore {
+  id                    String   @id @default(cuid())
+  leadId                String   @unique
+  companyFit            Int      @default(0)  // 0-20
+  operationalComplexity Int      @default(0)  // 0-20
+  potentialPain         Int      @default(0)  // 0-20
+  buyingSignal          Int      @default(0)  // 0-15
+  decisionMakerAccess   Int      @default(0)  // 0-15
+  contactQuality        Int      @default(0)  // 0-10
+  totalScore            Int      @default(0)  // 0-100
+  explanation           String?  // Explanation text: "Why is this lead #1 today?"
+  calculatedAt          DateTime @default(now())
+
+  // Relations
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+// ─── AUTOMATION ENGINE ────────────────────────────────────────
+
+model AutomationRule {
+  id             String          @id @default(cuid())
+  name           String
+  description    String?
+  triggerEvent   String          // ON_REPLY, ON_MEETING_BOOKED, ON_OPPORTUNITY_WON, ON_BOUNCE, ON_LEAD_COLD
+  conditionLogic String?         // JSON conditions
+  actionType     String          // PAUSE_SEQUENCE, MOVE_STAGE, CREATE_TASK, NOTIFY_OWNER, AI_ANALYZE, CREATE_OPPORTUNITY
+  actionPayload  String?         // JSON action parameters
+  isActive       Boolean         @default(true)
+  executionCount Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  logs           AutomationLog[]
+}
+
+model AutomationLog {
+  id           String         @id @default(cuid())
+  ruleId       String
+  triggerEvent String
+  entityType   String
+  entityId     String
+  status       String         @default("SUCCESS") // SUCCESS, FAILED, SKIPPED
+  details      String?
+  executedAt   DateTime       @default(now())
+
+  // Relations
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([executedAt])
+}
+
+// ─── BACKGROUND JOBS ──────────────────────────────────────────
+
+model BackgroundJob {
+  id          String    @id @default(cuid())
+  name        String
+  type        String    // GOOGLE_SHEET_SYNC, ENRICH_COMPANY, AI_RESEARCH, RECALCULATE_CADENCE, VERIFY_CONTACTS
+  status      String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  payload     String?   // JSON input
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  lastError   String?
+  scheduledAt DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ─── DATA QUALITY & COMPLIANCE ────────────────────────────────
+
+model DataQualityIssue {
+  id         String    @id @default(cuid())
+  entityType String    // Company, Contact, Lead, Opportunity
+  entityId   String
+  issueType  String    // MISSING_EMAIL, UNVERIFIED_CONTACT, DUPLICATE_DOMAIN, STALE_LEAD, MISSING_DECISION_MAKER, MISSING_NEXT_ACTION
+  severity   String    @default("MEDIUM") // HIGH, MEDIUM, LOW
+  details    String
+  isResolved Boolean   @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([isResolved])
+  @@index([severity])
+  @@index([issueType])
+}
+
+model SuppressionList {
+  id        String   @id @default(cuid())
+  type      String   // EMAIL, DOMAIN, PHONE
+  value     String   @unique
+  reason    String   // UNSUBSCRIBE, BOUNCED, DO_NOT_CONTACT, GDPR_REQUEST
+  notes     String?
+  addedById String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  addedBy User? @relation("SuppressionAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@index([value])
+}
+
+// ─── AI CONVERSATION INTELLIGENCE ─────────────────────────────
+
+model ConversationAnalysis {
+  id                  String   @id @default(cuid())
+  activityId          String   @unique
+  sentiment           String   @default("NEUTRAL") // POSITIVE, INTERESTED, SKEPTICAL, OBJECTION, NOT_INTERESTED, OUT_OF_OFFICE
+  intent              String?  // DEMO_REQUEST, PRICING_INQUIRY, INFORMATION_REQUEST, OBJECTION, DECLINE
+  painPoints          String?  // Extracted pain points
+  budget              String?  // Extracted budget indicators
+  authority           String?  // Extracted decision maker role
+  timeline            String?  // Extracted target timeline
+  objections          String?  // Extracted objections
+  recommendedResponse String?  // AI drafted reply for human approval
+  recommendedAction   String?  // Next task recommendation
+  isApproved          Boolean  @default(false)
+  approvedAt          DateTime?
+  analyzedAt          DateTime @default(now())
+
+  // Relations
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+}
+
+// ─── AI GOVERNANCE & COST AUDIT ───────────────────────────────
+
+model AiGovernanceLog {
+  id            String   @id @default(cuid())
+  featureName   String   // OUTREACH_GEN, REPLY_ANALYSIS, RESEARCH_DOSSIER, SCORE_EXPLANATION, WHAT_SHOULD_I_DO
+  modelName     String   @default("gpt-4o-mini")
+  promptVersion String   @default("v2.0")
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  estimatedCost Float    @default(0)
+  confidence    Float    @default(1.0)
+  humanApproved Boolean  @default(false)
+  leadId        String?
+  companyId     String?
+  createdAt     DateTime @default(now())
+
+  @@index([featureName])
+  @@index([createdAt])
+}
+
+// ─── SYSTEM SETTINGS (FOLLOW-UP CADENCE) ──────────────────────
+
+model FollowUpSetting {
+  id               String    @id @default("default")
+  f1Days           Int       @default(3)   // Days after initial outreach for F1 (e.g. 3)
+  f2Days           Int       @default(7)   // Days after initial outreach for F2 (e.g. 7)
+  f3Days           Int       @default(14)  // Days after initial outreach for F3 (e.g. 14)
+  maxFollowUps     Int       @default(3)   // Max 3 follow-ups
+  autoSchedule     Boolean   @default(true)
+  googleSheetUrl   String?   // Permanent saved Google Sheet URL for continuous auto-sync
+  lastSheetSync    DateTime? // Timestamp of last background sync
+  updatedAt        DateTime  @updatedAt
+}
