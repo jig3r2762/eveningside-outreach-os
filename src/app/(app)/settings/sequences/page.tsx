@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft, Clock, GitFork, ChevronRight } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export default async function SequencesSettingsPage() {
   const sequences = await prisma.sequence.findMany({
     include: {

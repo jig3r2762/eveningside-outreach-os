@@ -7,6 +7,8 @@ import Link from "next/link";
 import { ArrowLeft, UserPlus, Shield, CheckCircle2 } from "lucide-react";
 import { formatDate, getInitials } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 export default async function UsersSettingsPage() {
   const users = await prisma.user.findMany({
     include: {
