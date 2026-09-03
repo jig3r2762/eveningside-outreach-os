@@ -6,6 +6,9 @@ import Link from "next/link";
 import { Search, ExternalLink, ShieldCheck, AlertCircle, Building2, CheckCircle2 } from "lucide-react";
 import { formatDate, getScoreColor, getScoreGrade } from "@/lib/utils";
 import { ResearchDossierCard } from "@/components/research-dossier-card";
+
+export const dynamic = "force-dynamic";
+
 export default async function ResearchPage() {
   // 1. Leads needing research (NEW or RESEARCHING stage with no research or older than 30 days)
   const unresearchedLeads = await prisma.lead.findMany({

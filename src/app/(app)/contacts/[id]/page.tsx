@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, Mail, Phone, MapPin, ExternalLink, CalendarDays } from "lucide-react";
 import { formatDateTime, getInitials } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const contact = await prisma.contact.findUnique({

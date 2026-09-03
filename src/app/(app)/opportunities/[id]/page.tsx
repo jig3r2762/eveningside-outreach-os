@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, DollarSign, Target, Activity } from "lucide-react";
 import { format } from "date-fns";
 
+export const dynamic = "force-dynamic";
+
 export default async function OpportunityDetailPage({ params }: { params: { id: string } }) {
   const opportunity = await prisma.opportunity.findUnique({
     where: { id: params.id },
